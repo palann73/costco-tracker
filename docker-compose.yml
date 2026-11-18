@@ -1,0 +1,35 @@
+# Step 1: a Postgres database, plus a throwaway container for importing receipts.
+#
+#   docker compose up -d db                                                  # start the database
+#   docker compose run --rm importer import receipts/2026-11-17.txt          # import a receipt
+#
+# The schema in db/schema.sql is applied automatically the first time the
+# database starts with an empty data folder.
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - ./pgdata:/var/lib/postgresql/data          # on TrueNAS, point this at a dataset
+      - ./db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    ports:
+      - "5432:5432"                                # so Grafana or a SQL tool can connect
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+
+  importer:
+    image: python:3.12-slim
+    profiles: ["tools"]                            # only runs when you ask for it
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+    working_dir: /app
+    volumes:
+      - ./:/app
+    entrypoint: ["sh", "-c", "pip install -q -r requirements.txt && python -m costco_tracker.cli \"$$@\"", "--"]
+    depends_on:
+      db:
+        condition: service_healthy

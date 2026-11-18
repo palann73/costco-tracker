@@ -1,0 +1,6 @@
+.env
+pgdata/
+receipts/*
+!receipts/.gitkeep
+__pycache__/
+.pytest_cache/
