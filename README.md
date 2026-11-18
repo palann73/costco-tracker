@@ -22,10 +22,12 @@ costco.com receipt text ──► parser ──► Postgres ──► Grafana da
    returns structured items. It checks its own work: the parsed items must add
    up to the receipt's subtotal, and the item count must match, or it reports a
    warning instead of saving bad data.
-2. **Database** (`db/schema.sql`) stores products, receipts and line items in
-   Postgres. A receipt's transaction number is unique, so importing the same
-   receipt twice does nothing.
-3. **Dashboards** (coming in step 3) read straight from Postgres.
+2. **Database** (`db/migrations/`) stores products, receipts, line items and
+   categories in Postgres. A receipt's transaction number is unique, so
+   importing the same receipt twice does nothing.
+3. **Names and categories** (`costco_tracker/products.py`) turn "ORG FR EGGS"
+   into "Organic eggs" in "Dairy & eggs", one at a time or in bulk via a CSV.
+4. **Dashboards** (coming in step 3) read straight from Postgres.
 
 ## Design decisions
 
@@ -37,14 +39,19 @@ costco.com receipt text ──► parser ──► Postgres ──► Grafana da
 | `products` table separate from `line_items` | A friendly name or category is set once and applies to every past purchase. |
 | Import refuses receipts whose totals don't match | Wrong data is worse than missing data. `--force` exists for the rare exception. |
 | Membership number removed before storing | The raw text is kept for re-parsing later, without personal identifiers. |
+| Numbered migration files instead of one schema file | The database on the NAS can be upgraded in place without losing purchases. Each file runs once, in its own transaction. |
+| Categories in their own table | A typo can't quietly create a second "Produce" on the dashboards. |
+| Bulk editing via CSV | Any spreadsheet app can fill in dozens of names at once, before there's a web page for it. |
+| Connections use autocommit plus explicit transactions | Found while testing: without it, a write that followed a read was never saved. Tests now check saved data from a second connection. |
 
 ## Running it
 
 Requirements: Docker with Compose (TrueNAS SCALE 24.10 or later works).
 
 ```bash
-cp .env.example .env            # then set a real password
-docker compose up -d db         # starts Postgres and creates the tables
+cp .env.example .env                       # then set a real password
+docker compose up -d db                    # starts Postgres
+docker compose run --rm importer migrate   # creates the tables (run again after each update)
 ```
 
 Save a receipt's text from costco.com into `receipts/`, for example
@@ -65,6 +72,21 @@ Example output:
   saved as receipt 1
 ```
 
+### Naming and categorizing items
+
+```bash
+docker compose run --rm importer categories        # the allowed list
+docker compose run --rm importer name 1068083 "Organic eggs" --category "Dairy & eggs"
+
+# In bulk: export, edit in a spreadsheet, import back
+docker compose run --rm importer export-products receipts/products.csv --missing
+docker compose run --rm importer import-products receipts/products.csv
+```
+
+The CSV lists the most bought items first. Fill in `display_name` and
+`category`. If any category is misspelled, nothing is saved and the
+line number is shown.
+
 ## Tests
 
 ```bash
@@ -73,12 +95,18 @@ python -m pytest
 ```
 
 The tests use a real receipt (membership number replaced) in
-`tests/fixtures/sample_receipt.txt`.
+`tests/fixtures/sample_receipt.txt`. Database tests run when
+`TEST_DATABASE_URL` points to an empty throwaway database; otherwise they are
+skipped:
+
+```bash
+TEST_DATABASE_URL=postgresql://costco:pw@localhost:5432/costco_test python -m pytest
+```
 
 ## Roadmap
 
 - [x] **Step 1: record purchases.** Parse receipt text, store it in Postgres.
-- [ ] **Step 2: names and categories.** Give items friendly names and categories.
+- [x] **Step 2: names and categories.** Friendly names, a fixed category list, CSV bulk editing, database migrations.
 - [ ] **Step 3: Grafana dashboards.** Spending by month, most bought items, price history.
 - [ ] **Step 4: home inventory.** Mark items as used, see what's on hand, get "time to restock" hints.
 - [ ] **Step 5: small web page** for pasting receipts instead of saving files.

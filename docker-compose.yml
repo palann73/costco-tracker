@@ -1,10 +1,8 @@
-# Step 1: a Postgres database, plus a throwaway container for importing receipts.
+# A Postgres database, plus a throwaway container for running the tool.
 #
-#   docker compose up -d db                                                  # start the database
-#   docker compose run --rm importer import receipts/2026-11-17.txt          # import a receipt
-#
-# The schema in db/schema.sql is applied automatically the first time the
-# database starts with an empty data folder.
+#   docker compose up -d db                                           # start the database
+#   docker compose run --rm importer migrate                          # create or upgrade tables
+#   docker compose run --rm importer import receipts/2026-11-17.txt   # import a receipt
 
 services:
   db:
@@ -13,7 +11,6 @@ services:
     env_file: .env
     volumes:
       - ./pgdata:/var/lib/postgresql/data          # on TrueNAS, point this at a dataset
-      - ./db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
     ports:
       - "5432:5432"                                # so Grafana or a SQL tool can connect
     healthcheck:
