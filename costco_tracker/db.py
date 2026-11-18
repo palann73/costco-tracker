@@ -16,7 +16,12 @@ from .parser import Receipt, redact
 
 def connect() -> psycopg.Connection:
     # DATABASE_URL looks like postgresql://user:password@host:5432/dbname
-    return psycopg.connect(os.environ["DATABASE_URL"])
+    #
+    # autocommit=True: each statement is saved on its own unless it runs inside
+    # `with conn.transaction():`, which then commits or rolls back as one unit.
+    # Without it, psycopg silently opens a transaction on the first query and
+    # nothing is saved unless we remember to call commit().
+    return psycopg.connect(os.environ["DATABASE_URL"], autocommit=True)
 
 
 def save_receipt(conn: psycopg.Connection, receipt: Receipt, raw_text: str) -> int | None:
